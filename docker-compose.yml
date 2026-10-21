@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: commerce
+      POSTGRES_PASSWORD: postgres
+    ports: ["5432:5432"]
+    volumes:
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "commerce"]
+      interval: 2s
+      retries: 30
+
+  graphdb:
+    image: ontotext/graphdb:10.8.14
+    ports: ["7200:7200"]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:7200/rest/repositories"]
+      interval: 5s
+      retries: 30
+
+  graphdb-init:
+    build: .
+    command: ["ontoagents", "load-graphdb"]
+    environment:
+      ONTO_GRAPHDB_URL: http://graphdb:7200
+    depends_on:
+      graphdb: { condition: service_healthy }
+
+  api:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      ONTO_DATABASE_URL: postgresql://agent_reader:agent_reader@postgres:5432/commerce
+      ONTO_KG_BACKEND: graphdb
+      ONTO_GRAPHDB_URL: http://graphdb:7200
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY}
+    depends_on:
+      postgres: { condition: service_healthy }
+      graphdb-init: { condition: service_completed_successfully }

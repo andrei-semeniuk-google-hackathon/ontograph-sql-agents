@@ -1,0 +1,90 @@
+# Golden questions. `expected_sql` is the reference answer; the agent's result set must
+# match it (order-insensitive unless `ordered: true`, numbers compared with tolerance).
+# `expect: refused` cases check that the system declines instead of guessing.
+
+- id: mrr-total
+  question: What is our MRR right now?
+  expected_sql: |
+    SELECT SUM(subscriptions.monthly_price) FROM subscriptions WHERE subscriptions.status = 'active'
+
+- id: mrr-by-plan
+  question: Break down monthly recurring revenue by plan
+  expected_sql: |
+    SELECT subscriptions.plan, SUM(subscriptions.monthly_price) FROM subscriptions
+    WHERE subscriptions.status = 'active' GROUP BY subscriptions.plan
+
+- id: revenue-by-country-2025
+  question: Which markets brought the most revenue in 2025?
+  ordered: true
+  expected_sql: |
+    SELECT customers.country, SUM(orders.total_amount) AS revenue
+    FROM orders JOIN customers ON orders.customer_id = customers.id
+    WHERE orders.status = 'paid'
+      AND orders.created_at >= '2025-01-01' AND orders.created_at < '2026-01-01'
+    GROUP BY customers.country ORDER BY revenue DESC
+
+- id: revenue-by-brand-fanout
+  question: Revenue by brand
+  expected_sql: |
+    SELECT products.brand, SUM(order_items.quantity * order_items.unit_price)
+    FROM order_items
+    JOIN orders ON order_items.order_id = orders.id
+    JOIN products ON order_items.product_id = products.id
+    WHERE orders.status = 'paid' GROUP BY products.brand
+
+- id: revenue-germany-2025
+  question: How much revenue did we make in Germany in 2025?
+  expected_sql: |
+    SELECT SUM(orders.total_amount)
+    FROM orders JOIN customers ON orders.customer_id = customers.id
+    WHERE orders.status = 'paid' AND customers.country IN ('DE')
+      AND orders.created_at >= '2025-01-01' AND orders.created_at < '2026-01-01'
+
+- id: b2b-aov
+  question: What's the average order value for B2B customers?
+  expected_sql: |
+    SELECT ROUND(AVG(orders.total_amount), 2)
+    FROM orders JOIN customers ON orders.customer_id = customers.id
+    WHERE orders.status = 'paid' AND customers.segment = 'business'
+
+- id: top-categories-units
+  question: Top 2 product categories by units sold
+  ordered: true
+  expected_sql: |
+    SELECT products.category, SUM(order_items.quantity) AS units
+    FROM order_items
+    JOIN orders ON order_items.order_id = orders.id
+    JOIN products ON order_items.product_id = products.id
+    WHERE orders.status = 'paid' GROUP BY products.category ORDER BY units DESC LIMIT 2
+
+- id: churn-by-plan
+  question: How many subscriptions churned per plan?
+  expected_sql: |
+    SELECT subscriptions.plan, COUNT(subscriptions.id) FROM subscriptions
+    WHERE subscriptions.status = 'cancelled' GROUP BY subscriptions.plan
+
+- id: monthly-orders-h1-2026
+  question: Number of orders per month in the first half of 2026
+  ordered: true
+  expected_sql: |
+    SELECT date_trunc('month', orders.created_at) AS m, COUNT(DISTINCT orders.id)
+    FROM orders
+    WHERE orders.status = 'paid'
+      AND orders.created_at >= '2026-01-01' AND orders.created_at < '2026-07-01'
+    GROUP BY m ORDER BY m
+
+- id: refused-unknown-metric
+  question: What is our customer lifetime value?
+  expect: refused
+
+- id: refused-forecast
+  question: Will revenue grow next year?
+  expect: refused
+
+- id: refused-unknown-market
+  question: Revenue in Brazil last year
+  expect: refused
+
+- id: refused-aov-by-brand
+  question: Average order value by brand
+  expect: refused

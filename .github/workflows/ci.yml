@@ -1,0 +1,47 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run mypy src
+      # Unit + integration (Testcontainers starts Postgres on the runner's Docker).
+      - run: uv run pytest -q
+
+  eval:
+    # Golden-set evaluation against the real model. A drop below the threshold fails the build.
+    needs: check
+    if: github.event_name == 'push' && vars.RUN_EVALS == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: commerce
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 2s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - name: Seed warehouse
+        run: |
+          for f in db/init/*.sql; do
+            PGPASSWORD=postgres psql -h localhost -U postgres -d commerce -v ON_ERROR_STOP=1 -f "$f"
+          done
+      - run: uv run ontoagents eval --min-accuracy 0.9
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
